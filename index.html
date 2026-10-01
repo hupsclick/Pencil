@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
   <link rel="apple-touch-icon" href="icon-192.png">
-    <link rel="shortcut icon" href="assets/icon.ico">
+  <link rel="shortcut icon" href="assets/icon.ico">
   <title>Pencil Sketch</title>
   <style>
     *, *::before, *::after {
@@ -218,15 +218,23 @@
       overflow: hidden;
       background: #1a1a1f;
       min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     #sketchCanvas {
       display: block;
-      width: 100%;
-      height: 100%;
+      /* Größe wird per JS gesetzt – Papier bleibt immer gleich */
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
       cursor: crosshair;
       touch-action: none;
       background: #f5f0e8;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+      border-radius: 2px;
     }
 
     /* ===== BOTTOM BAR ===== */
@@ -805,6 +813,10 @@
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const wrap = document.querySelector(".canvas-wrap");
 
+    /* Feste Papiergröße – unabhängig von Orientierung */
+    const PAPER_W = 1600;
+    const PAPER_H = 1200;
+
     let tool = "pencil";
     let brushSize = 4;
     let color = "#1a1a1a";
@@ -814,49 +826,36 @@
     let history = [];
     let historyIndex = -1;
     const MAX_HISTORY = 40;
+    let scaleX = 1;
+    let scaleY = 1;
 
-    // Resize canvas to fit container while keeping internal resolution sharp
-    function resizeCanvas() {
-      const rect = wrap.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = Math.floor(rect.width);
-      const h = Math.floor(rect.height);
-
-      // Save current content
-      let imgData = null;
-      if (canvas.width > 0 && canvas.height > 0) {
-        try {
-          imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        } catch (_) {}
-      }
-
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      canvas.style.width = w + "px";
-      canvas.style.height = h + "px";
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      // Fill paper background
+    function initPaper() {
+      canvas.width = PAPER_W;
+      canvas.height = PAPER_H;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = "#f5f0e8";
-      ctx.fillRect(0, 0, w, h);
-
-      // Restore previous drawing scaled
-      if (imgData) {
-        const temp = document.createElement("canvas");
-        temp.width = imgData.width;
-        temp.height = imgData.height;
-        temp.getContext("2d").putImageData(imgData, 0, 0);
-        ctx.drawImage(temp, 0, 0, w, h);
-      }
-
-      // If first load, save initial state
+      ctx.fillRect(0, 0, PAPER_W, PAPER_H);
+      fitPaperToView();
       if (history.length === 0) {
         saveState();
       }
     }
 
+    /* Passt die Anzeige an den sichtbaren Bereich an (ohne interne Größe zu ändern) */
+    function fitPaperToView() {
+      const rect = wrap.getBoundingClientRect();
+      const availW = Math.max(1, rect.width - 8);
+      const availH = Math.max(1, rect.height - 8);
+      const ratio = Math.min(availW / PAPER_W, availH / PAPER_H);
+      const displayW = Math.floor(PAPER_W * ratio);
+      const displayH = Math.floor(PAPER_H * ratio);
+      canvas.style.width = displayW + "px";
+      canvas.style.height = displayH + "px";
+      scaleX = PAPER_W / displayW;
+      scaleY = PAPER_H / displayH;
+    }
+
     function saveState() {
-      // Truncate future states if we undid
       if (historyIndex < history.length - 1) {
         history = history.slice(0, historyIndex + 1);
       }
@@ -876,18 +875,16 @@
       if (index < 0 || index >= history.length) return;
       const img = new Image();
       img.onload = () => {
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        const w = canvas.width / dpr;
-        const h = canvas.height / dpr;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.fillStyle = "#f5f0e8";
-        ctx.fillRect(0, 0, w, h);
-        ctx.drawImage(img, 0, 0, w, h);
+        ctx.fillRect(0, 0, PAPER_W, PAPER_H);
+        ctx.drawImage(img, 0, 0, PAPER_W, PAPER_H);
       };
       img.src = history[index];
       historyIndex = index;
     }
 
+    /* Bildschirm-Koordinaten → Papier-Koordinaten */
     function getPos(e) {
       const rect = canvas.getBoundingClientRect();
       let clientX, clientY;
@@ -899,8 +896,8 @@
         clientY = e.clientY;
       }
       return {
-        x: clientX - rect.left,
-        y: clientY - rect.top
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY
       };
     }
 
@@ -911,7 +908,6 @@
       lastX = pos.x;
       lastY = pos.y;
 
-      // Dot for single click
       ctx.beginPath();
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -924,7 +920,7 @@
       }
       ctx.lineWidth = brushSize;
       ctx.moveTo(lastX, lastY);
-      ctx.lineTo(lastX + 0.01, lastY + 0.01);
+      ctx.lineTo(lastX + 0.1, lastY + 0.1);
       ctx.stroke();
     }
 
@@ -993,7 +989,6 @@
         document.querySelectorAll(".swatch").forEach((s) => s.classList.remove("active"));
         sw.classList.add("active");
         color = sw.dataset.color;
-        // Switch to pencil when choosing color
         tool = "pencil";
         document.getElementById("btnPencil").classList.add("active");
         document.getElementById("btnEraser").classList.remove("active");
@@ -1015,12 +1010,9 @@
 
     document.getElementById("btnClear").addEventListener("click", () => {
       if (confirm("Canvas wirklich löschen?")) {
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        const w = canvas.width / dpr;
-        const h = canvas.height / dpr;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.fillStyle = "#f5f0e8";
-        ctx.fillRect(0, 0, w, h);
+        ctx.fillRect(0, 0, PAPER_W, PAPER_H);
         saveState();
         showToast("Gelöscht");
       }
@@ -1032,13 +1024,12 @@
         link.download = "pencil-sketch-" + Date.now() + ".png";
         link.href = canvas.toDataURL("image/png");
         link.click();
-        showToast("Bild gespeichert");
+        showToast("Bild gespeichert (1600×1200)");
       } catch (_) {
         showToast("Speichern fehlgeschlagen");
       }
     });
 
-    // Toast
     function showToast(msg) {
       const t = document.getElementById("toast");
       t.textContent = msg;
@@ -1047,7 +1038,6 @@
       t._tid = setTimeout(() => t.classList.remove("show"), 1800);
     }
 
-    // Keyboard shortcuts
     document.addEventListener("keydown", (e) => {
       if (coffeeModal.classList.contains("is-open")) return;
       if (e.ctrlKey || e.metaKey) {
@@ -1064,18 +1054,15 @@
       }
     });
 
-    // Init
     window.addEventListener("resize", () => {
-      // Debounce
       clearTimeout(window._resizeT);
-      window._resizeT = setTimeout(resizeCanvas, 120);
+      window._resizeT = setTimeout(fitPaperToView, 100);
     });
     window.addEventListener("orientationchange", () => {
-      setTimeout(resizeCanvas, 200);
+      setTimeout(fitPaperToView, 250);
     });
 
-    // First paint
-    resizeCanvas();
+    initPaper();
   </script>
 </body>
 </html>
