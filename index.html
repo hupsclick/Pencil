@@ -808,14 +808,18 @@
       }
     });
 
-    /* ========== Sketch App ========== */
+     /* ========== Sketch App ========== */
     const canvas = document.getElementById("sketchCanvas");
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const wrap = document.querySelector(".canvas-wrap");
 
-    /* Feste Papiergröße – unabhängig von Orientierung */
-    const PAPER_W = 1600;
-    const PAPER_H = 1200;
+    /* Papiergröße: Querformat fix 1600x1200, Hochformat = Bildschirm-Zeichenbereich */
+    const LANDSCAPE_W = 1600;
+    const LANDSCAPE_H = 1200;
+    let PAPER_W = LANDSCAPE_W;
+    let PAPER_H = LANDSCAPE_H;
+    let portraitSize = null;       // wird einmalig beim ersten Hochformat gemessen
+    let currentModeName = null;    // "portrait" | "landscape"
 
     let tool = "pencil";
     let brushSize = 4;
@@ -829,26 +833,74 @@
     let scaleX = 1;
     let scaleY = 1;
 
-    function initPaper() {
+    /* Eigener Verlauf je Format, damit beim Drehen nichts verloren geht */
+    const stores = {
+      portrait:  { history: [], index: -1 },
+      landscape: { history: [], index: -1 }
+    };
+
+    /* Hochformat nur bei Handy-Breite */
+    function getMode() {
+      return (window.innerHeight > window.innerWidth && window.innerWidth <= 768)
+        ? "portrait"
+        : "landscape";
+    }
+
+    function applyMode() {
+      const mode = getMode();
+      if (mode === currentModeName) {
+        fitPaperToView();
+        return;
+      }
+
+      // aktuellen Verlauf des alten Formats sichern
+      if (currentModeName) {
+        stores[currentModeName].history = history;
+        stores[currentModeName].index = historyIndex;
+      }
+      currentModeName = mode;
+
+      if (mode === "portrait") {
+        if (!portraitSize) {
+          const r = wrap.getBoundingClientRect();
+          portraitSize = {
+            w: Math.max(1, Math.round(r.width)),
+            h: Math.max(1, Math.round(r.height))
+          };
+        }
+        PAPER_W = portraitSize.w;
+        PAPER_H = portraitSize.h;
+      } else {
+        PAPER_W = LANDSCAPE_W;
+        PAPER_H = LANDSCAPE_H;
+      }
+
+      history = stores[mode].history;
+      historyIndex = stores[mode].index;
+
       canvas.width = PAPER_W;
       canvas.height = PAPER_H;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = "#f5f0e8";
       ctx.fillRect(0, 0, PAPER_W, PAPER_H);
       fitPaperToView();
+
       if (history.length === 0) {
         saveState();
+      } else {
+        restoreState(historyIndex);
       }
     }
 
     /* Passt die Anzeige an den sichtbaren Bereich an (ohne interne Größe zu ändern) */
     function fitPaperToView() {
       const rect = wrap.getBoundingClientRect();
-      const availW = Math.max(1, rect.width - 8);
-      const availH = Math.max(1, rect.height - 8);
+      const margin = (currentModeName === "portrait") ? 0 : 8;
+      const availW = Math.max(1, rect.width - margin);
+      const availH = Math.max(1, rect.height - margin);
       const ratio = Math.min(availW / PAPER_W, availH / PAPER_H);
-      const displayW = Math.floor(PAPER_W * ratio);
-      const displayH = Math.floor(PAPER_H * ratio);
+      const displayW = Math.max(1, Math.floor(PAPER_W * ratio));
+      const displayH = Math.max(1, Math.floor(PAPER_H * ratio));
       canvas.style.width = displayW + "px";
       canvas.style.height = displayH + "px";
       scaleX = PAPER_W / displayW;
@@ -876,6 +928,7 @@
       const img = new Image();
       img.onload = () => {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalCompositeOperation = "source-over";
         ctx.fillStyle = "#f5f0e8";
         ctx.fillRect(0, 0, PAPER_W, PAPER_H);
         ctx.drawImage(img, 0, 0, PAPER_W, PAPER_H);
@@ -1011,6 +1064,7 @@
     document.getElementById("btnClear").addEventListener("click", () => {
       if (confirm("Canvas wirklich löschen?")) {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalCompositeOperation = "source-over";
         ctx.fillStyle = "#f5f0e8";
         ctx.fillRect(0, 0, PAPER_W, PAPER_H);
         saveState();
@@ -1024,7 +1078,7 @@
         link.download = "pencil-sketch-" + Date.now() + ".png";
         link.href = canvas.toDataURL("image/png");
         link.click();
-        showToast("Bild gespeichert (1600×1200)");
+        showToast("Bild gespeichert (" + PAPER_W + "×" + PAPER_H + ")");
       } catch (_) {
         showToast("Speichern fehlgeschlagen");
       }
@@ -1056,13 +1110,13 @@
 
     window.addEventListener("resize", () => {
       clearTimeout(window._resizeT);
-      window._resizeT = setTimeout(fitPaperToView, 100);
+      window._resizeT = setTimeout(applyMode, 100);
     });
     window.addEventListener("orientationchange", () => {
-      setTimeout(fitPaperToView, 250);
+      setTimeout(applyMode, 250);
     });
 
-    initPaper();
+    applyMode();
   </script>
 </body>
 </html>
