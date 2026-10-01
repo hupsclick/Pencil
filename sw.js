@@ -1,10 +1,11 @@
-const CACHE_NAME = 'pencil-sketch-v1.0.0';
+const CACHE_NAME = 'pencil-sketch-v1.1.0';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './assets/icon.ico'
 ];
 
 self.addEventListener('install', (event) => {
@@ -42,7 +43,7 @@ self.addEventListener('fetch', (event) => {
           }
           return networkResponse;
         })
-        .catch(() => cached);
+        .catch(() => cached || caches.match('./index.html'));
 
       return cached || fetchPromise;
     })
